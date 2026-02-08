@@ -7,7 +7,7 @@ set -e
 
 TOKENIZERS_PARALLELISM=false \
 WANDB_DISABLED=true \
-python src/pretrain.py \
+python3 src/pretrain.py \
     --model_config ./configs/model_config.json \
     --train_config ./configs/pretrain_config.json \
     --tokenizer_dir ./outputs/tokenizer \

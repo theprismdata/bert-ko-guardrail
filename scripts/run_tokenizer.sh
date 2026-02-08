@@ -6,7 +6,7 @@
 set -e
 
 TOKENIZERS_PARALLELISM=false \
-python src/train_tokenizer.py \
+python3 src/train_tokenizer.py \
     --corpus_dir ./data/corpus \
     --output_dir ./outputs/tokenizer \
     --vocab_size 32000 \

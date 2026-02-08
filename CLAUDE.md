@@ -40,3 +40,15 @@ bash scripts/run_finetune.sh
 
 - Apple Silicon (MPS): `fp16: false`, `dataloader_num_workers: 0`
 - CUDA GPU: `fp16: true`, `dataloader_num_workers: 4`
+
+
+## Prompt Injection ENG TO KOR SCRIPT
+python3 scripts/translate_to_korean.py \
+    --input prompt-injection-dataset/test.csv \
+    --output prompt-injection-dataset/test_ko.csv \
+    --workers 1 --restart
+
+python3 scripts/translate_to_korean.py \
+    --input prompt-injection-dataset/train.csv \
+    --output prompt-injection-dataset/train_ko.csv \
+    --workers 1 --restart
