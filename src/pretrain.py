@@ -6,14 +6,19 @@ BertConfig로 모델을 랜덤 초기화하고, Masked Language Modeling으로 �
 import argparse
 import json
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from transformers import (
     AutoTokenizer,
     BertConfig,
-    BertForMaskedLM,
+    # BertForMaskedLM,  # 대체됨
     DataCollatorForLanguageModeling,
     Trainer,
     TrainingArguments,
 )
+from bert_model import CustomBertForMaskedLM
 
 from data_utils import load_text_files
 
@@ -52,6 +57,9 @@ def main():
 
     mlm_probability = train_cfg.pop("mlm_probability", 0.15)
     max_seq_length = train_cfg.pop("max_seq_length", 256)
+    
+    # transformers 버전에 따라 save_safetensors 인자를 지원하지 않을 수 있음
+    train_cfg.pop("save_safetensors", None)
 
     if args.output_dir:
         train_cfg["output_dir"] = args.output_dir
@@ -62,9 +70,10 @@ def main():
     # vocab_size를 토크나이저에 맞게 조정
     model_cfg["vocab_size"] = tokenizer.vocab_size
 
-    # 모델 생성 (랜덤 초기화)
+    # 모델 생성 (랜덤 초기화) - Custom Model 사용
     config = BertConfig(**model_cfg)
-    model = BertForMaskedLM(config)
+    model = CustomBertForMaskedLM(config)
+    # model = BertForMaskedLM(config)
     param_count = sum(p.numel() for p in model.parameters())
     print(f"Model initialized: {param_count:,} parameters")
 
@@ -88,6 +97,9 @@ def main():
 
     # TrainingArguments
     training_args = TrainingArguments(**train_cfg)
+    # CustomBertForMaskedLM은 embedding·MLM head weight tying 사용 → safetensors 저장 시 공유 메모리 오류.
+    # 체크포인트/최종 저장을 PyTorch .bin으로 하기 위해 safe_serialization 비활성화.
+    setattr(training_args, "safe_serialization", False)
 
     # Trainer
     trainer = Trainer(
@@ -102,8 +114,8 @@ def main():
     # 학습
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
 
-    # 최종 모델 저장
-    trainer.save_model()
+    # 최종 모델 저장 (weight tying 때문에 safe_serialization=False)
+    trainer.save_model(safe_serialization=False)
     tokenizer.save_pretrained(training_args.output_dir)
     print(f"Model saved to {training_args.output_dir}")
 
