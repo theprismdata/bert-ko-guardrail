@@ -1,9 +1,12 @@
 """
 Prompt Injection Dataset 영문 → 한국어 번역 스크립트 (Gemini API, 멀티스레드)
 
+레이블이 INJECTION인 행만 API로 번역하고, NORMAL 등 나머지는 원문 그대로 출력합니다.
+
 사용법:
     python3 scripts/translate_to_korean.py --input prompt-injection-dataset/train.csv --output prompt-injection-dataset/train_ko.csv
     python3 scripts/translate_to_korean.py --input prompt-injection-dataset/test.csv --output prompt-injection-dataset/test_ko.csv
+    # 다른 레이블만 번역: --translate-label SAFE
 """
 
 import csv
@@ -138,6 +141,11 @@ def main():
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument("--workers", type=int, default=MAX_WORKERS)
     parser.add_argument("--restart", action="store_true", help="처음부터 다시 시작")
+    parser.add_argument(
+        "--translate-label",
+        default="INJECTION",
+        help="이 레이블인 행만 번역하고, 나머지는 원문 유지 (기본: INJECTION)",
+    )
     args = parser.parse_args()
 
     input_path = args.input
@@ -181,7 +189,9 @@ def main():
         batches.append((i, batch_end))
 
     total_batches = len(batches)
-    log(f"총 {total_batches}개 배치 처리 예정")
+    translate_label = args.translate_label
+    injection_count = sum(1 for r in rows if len(r) >= 2 and r[1] == translate_label)
+    log(f"총 {total_batches}개 배치 처리 예정 (레이블 '{translate_label}'만 번역: {injection_count}행)")
 
     start_time = time.time()
     completed_batches = 0
@@ -194,28 +204,43 @@ def main():
         chunk_end = min(chunk_start + CHUNK, total_batches)
         chunk_batches = batches[chunk_start:chunk_end]
 
-        # 이 청크의 배치들을 병렬 처리
+        # 이 청크의 배치들을 병렬 처리 (--translate-label인 행만 API 호출)
         futures = {}
+        results = {}
         with ThreadPoolExecutor(max_workers=workers) as executor:
             for local_idx, (row_start, row_end) in enumerate(chunk_batches):
                 global_batch_idx = chunk_start + local_idx
-                texts = [rows[r][0] for r in range(row_start, row_end)]
-                future = executor.submit(translate_batch, texts, global_batch_idx)
-                futures[future] = (row_start, row_end, global_batch_idx)
+                indices_in_batch = [
+                    i for i in range(row_end - row_start)
+                    if rows[row_start + i][1] == translate_label
+                ]
+                texts_to_translate = [rows[row_start + i][0] for i in indices_in_batch]
 
-            # 결과를 순서대로 모으기
-            results = {}
+                if not texts_to_translate:
+                    results[global_batch_idx] = (row_start, row_end, indices_in_batch, None)
+                else:
+                    future = executor.submit(
+                        translate_batch, texts_to_translate, global_batch_idx
+                    )
+                    futures[future] = (row_start, row_end, indices_in_batch)
+
             for future in as_completed(futures):
                 batch_idx, translated = future.result()
-                row_start, row_end, _ = futures[future]
-                labels = [rows[r][1] for r in range(row_start, row_end)]
-                results[batch_idx] = (translated, labels, row_end)
+                row_start, row_end, indices_in_batch = futures[future]
+                results[batch_idx] = (row_start, row_end, indices_in_batch, translated)
 
-        # 순서대로 파일에 쓰기
+        # 순서대로 파일에 쓰기 (번역된 문장만 치환, 나머지는 원문 유지)
         for local_idx in range(len(chunk_batches)):
             global_batch_idx = chunk_start + local_idx
-            translated, labels, row_end = results[global_batch_idx]
-            for text_ko, label in zip(translated, labels):
+            row_start, row_end, indices_in_batch, translated = results[global_batch_idx]
+            if translated is None:
+                output_texts = [rows[r][0] for r in range(row_start, row_end)]
+            else:
+                output_texts = [rows[row_start + i][0] for i in range(row_end - row_start)]
+                for j, idx in enumerate(indices_in_batch):
+                    output_texts[idx] = translated[j]
+            labels = [rows[r][1] for r in range(row_start, row_end)]
+            for text_ko, label in zip(output_texts, labels):
                 writer.writerow([text_ko, label])
 
             completed_batches += 1

@@ -5,6 +5,12 @@ from pathlib import Path
 
 from datasets import Dataset, load_dataset
 
+# 프로젝트 표준 10-class 순서 (CLAUDE.md와 동일). 알파벳 순 사용 시 SAFE=8 등 인덱스 꼬임 방지.
+MULTICLASS_LABEL_ORDER = [
+    "SAFE", "ORIGIN", "PHYSICAL", "POLITICS", "PROFANITY",
+    "AGE", "GENDER", "RACE", "RELIGION", "SOCIAL",
+]
+
 
 def load_text_files(data_dir: str, split_ratio: float = 0.05) -> dict:
     """텍스트 파일들을 로드하여 train/validation으로 분할.
@@ -63,6 +69,9 @@ def load_classification_data(data_dir: str, text_col: str = "text", label_col: s
 def build_label_map(dataset: Dataset, label_col: str = "label") -> dict:
     """레이블을 정수 인덱스로 매핑하는 딕셔너리 생성.
 
+    프로젝트 10-class(SAFE, ORIGIN, ...) 데이터면 CLAUDE.md 표준 순서를 사용하고,
+    그 외(이진 분류 등)는 알파벳 순으로 매핑한다.
+
     Args:
         dataset: 레이블이 문자열인 Dataset
         label_col: 레이블 컬럼명
@@ -70,5 +79,7 @@ def build_label_map(dataset: Dataset, label_col: str = "label") -> dict:
     Returns:
         {label_string: int_index, ...}
     """
-    unique_labels = sorted(set(dataset[label_col]))
-    return {label: idx for idx, label in enumerate(unique_labels)}
+    unique_labels = set(dataset[label_col])
+    if unique_labels == set(MULTICLASS_LABEL_ORDER):
+        return {label: idx for idx, label in enumerate(MULTICLASS_LABEL_ORDER)}
+    return {label: idx for idx, label in enumerate(sorted(unique_labels))}

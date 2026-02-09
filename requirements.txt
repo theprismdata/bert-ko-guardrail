@@ -5,3 +5,4 @@ datasets>=2.14.0
 accelerate>=0.25.0
 evaluate
 scikit-learn
+google-generativeai

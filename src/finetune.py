@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import math
 
 import evaluate
 import numpy as np
@@ -9,6 +10,7 @@ from transformers import (
     AutoTokenizer,
     BertConfig,
     BertForSequenceClassification,
+    EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
 )
@@ -39,6 +41,7 @@ def main():
         train_cfg = json.load(f)
 
     max_seq_length = train_cfg.pop("max_seq_length", 256)
+    early_stopping_patience = train_cfg.pop("early_stopping_patience", 2)
 
     if args.output_dir:
         train_cfg["output_dir"] = args.output_dir
@@ -74,10 +77,17 @@ def main():
         args.model_dir, config=config, ignore_mismatched_sizes=True
     )
 
-    # 토크나이징
+    # 토크나이징 (CSV에서 NaN/None이 오면 토크나이저 타입 오류 발생하므로 str로 정제)
     def tokenize_fn(examples):
+        texts = examples["text"]
+        cleaned = []
+        for x in texts:
+            if x is None or (isinstance(x, float) and math.isnan(x)):
+                cleaned.append("")
+            else:
+                cleaned.append(str(x))
         return tokenizer(
-            examples["text"],
+            cleaned,
             truncation=True,
             max_length=max_seq_length,
             padding=False,
@@ -103,7 +113,7 @@ def main():
     # TrainingArguments
     training_args = TrainingArguments(**train_cfg)
 
-    # Trainer
+    # Trainer (EarlyStopping: validation F1이 N epoch 연속 개선 없으면 종료)
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -111,6 +121,7 @@ def main():
         eval_dataset=datasets.get("validation"),
         compute_metrics=compute_metrics,
         processing_class=tokenizer,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=early_stopping_patience)],
     )
 
     # 학습

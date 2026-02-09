@@ -32,7 +32,7 @@ sudo systemctl restart docker
 ## 2. 단계별 실행 (원격 서버에서 바로 실행)
 
 아래 명령어들은 **Docker 컨테이너를 생성 → 패키지 설치 → 스크립트 실행 → 종료 및 삭제**를 한 번에 수행합니다.
-서버 터미널에서 복사해서 붙여넣으세요.
+**원격지 서버**(NVIDIA GPU + nvidia-container-toolkit 설치된 Linux)에서 실행하는 명령입니다.
 
 ### (옵션) 데이서 셋이 없을 경우 다중 분류 데이터 준비 (Multiclass)
 ```bash
@@ -54,7 +54,7 @@ docker run --gpus all --rm -v $(pwd):/workspace -w /workspace nvcr.io/nvidia/pyt
 ### 3. 파인튜닝 (Finetune)
 ```bash
 docker run --gpus all --rm -v $(pwd):/workspace -w /workspace nvcr.io/nvidia/pytorch:25.01-py3 \
-  bash -c "pip install transformers datasets scikit-learn accelerate && bash scripts/run_finetune.sh"
+  bash -c "pip install transformers datasets scikit-learn evaluate accelerate && bash scripts/run_finetune.sh"
 ```
 
 
