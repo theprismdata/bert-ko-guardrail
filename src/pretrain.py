@@ -114,8 +114,8 @@ def main():
     # 학습
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
 
-    # 최종 모델 저장 (weight tying 때문에 safe_serialization=False)
-    trainer.save_model(safe_serialization=False)
+    # 최종 모델 저장
+    trainer.save_model()
     tokenizer.save_pretrained(training_args.output_dir)
     print(f"Model saved to {training_args.output_dir}")
 

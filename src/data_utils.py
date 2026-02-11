@@ -8,7 +8,7 @@ from datasets import Dataset, load_dataset
 # 프로젝트 표준 10-class 순서 (CLAUDE.md와 동일). 알파벳 순 사용 시 SAFE=8 등 인덱스 꼬임 방지.
 MULTICLASS_LABEL_ORDER = [
     "SAFE", "ORIGIN", "PHYSICAL", "POLITICS", "PROFANITY",
-    "AGE", "GENDER", "RACE", "RELIGION", "SOCIAL",
+    "AGE", "GENDER", "RACE", "RELIGION", "SOCIAL", "INJECTION",
 ]
 
 

@@ -10,6 +10,6 @@ WANDB_DISABLED=true \
 python3 src/finetune.py \
     --model_dir ./outputs/pretrain \
     --train_config ./configs/finetune_config.json \
-    --data_dir ./data/classification \
+    --data_dir ./data/classification_v3 \
     --text_col text \
     --label_col label
