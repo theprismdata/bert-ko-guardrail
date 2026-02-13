@@ -3,9 +3,15 @@
 import argparse
 import json
 import math
+import os
 
 import evaluate
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import classification_report, confusion_matrix
 from transformers import (
     AutoTokenizer,
     BertConfig,
@@ -101,14 +107,39 @@ def main():
 
     # 메트릭
     accuracy_metric = evaluate.load("accuracy")
+    precision_metric = evaluate.load("precision")
+    recall_metric = evaluate.load("recall")
     f1_metric = evaluate.load("f1")
 
     def compute_metrics(eval_pred):
         logits, labels = eval_pred
         preds = np.argmax(logits, axis=-1)
-        acc = accuracy_metric.compute(predictions=preds, references=labels)
-        f1 = f1_metric.compute(predictions=preds, references=labels, average="weighted")
-        return {"accuracy": acc["accuracy"], "f1": f1["f1"]}
+        acc = accuracy_metric.compute(predictions=preds, references=labels)["accuracy"]
+        precision_macro = precision_metric.compute(
+            predictions=preds, references=labels, average="macro"
+        )["precision"]
+        precision_weighted = precision_metric.compute(
+            predictions=preds, references=labels, average="weighted"
+        )["precision"]
+        recall_macro = recall_metric.compute(
+            predictions=preds, references=labels, average="macro"
+        )["recall"]
+        recall_weighted = recall_metric.compute(
+            predictions=preds, references=labels, average="weighted"
+        )["recall"]
+        f1_macro = f1_metric.compute(predictions=preds, references=labels, average="macro")["f1"]
+        f1_weighted = f1_metric.compute(predictions=preds, references=labels, average="weighted")["f1"]
+        return {
+            "accuracy": acc,
+            "precision_macro": precision_macro,
+            "precision_weighted": precision_weighted,
+            "recall_macro": recall_macro,
+            "recall_weighted": recall_weighted,
+            "f1_macro": f1_macro,
+            "f1_weighted": f1_weighted,
+            # 기존 설정(metric_for_best_model=f1 등)과의 호환을 위한 별칭
+            "f1": f1_weighted,
+        }
 
     # TrainingArguments
     training_args = TrainingArguments(**train_cfg)
@@ -132,10 +163,73 @@ def main():
     tokenizer.save_pretrained(training_args.output_dir)
     print(f"Fine-tuned model saved to {training_args.output_dir}")
 
-    # 테스트셋 평가
+    # 테스트셋/검증셋 평가 + HF 업로드용 메트릭 파일 저장
+    metrics_payload = {
+        "num_labels": num_labels,
+        "label2id": label2id,
+        "id2label": {str(k): v for k, v in id2label.items()},
+    }
+
+    def _save_confusion_matrix(labels, preds, target_names, split_name):
+        """Confusion matrix를 정규화 heatmap으로 저장."""
+        cm = confusion_matrix(labels, preds)
+        # 행(실제) 기준 정규화 (recall 관점)
+        cm_norm = cm.astype(float)
+        row_sums = cm.sum(axis=1, keepdims=True)
+        row_sums[row_sums == 0] = 1
+        cm_norm = cm_norm / row_sums
+
+        fig, ax = plt.subplots(figsize=(12, 10))
+        sns.heatmap(
+            cm_norm, annot=True, fmt=".2f", cmap="Blues",
+            xticklabels=target_names, yticklabels=target_names,
+            ax=ax, vmin=0, vmax=1,
+        )
+        ax.set_xlabel("Predicted")
+        ax.set_ylabel("Actual")
+        ax.set_title(f"Confusion Matrix ({split_name}) - Row Normalized")
+        plt.tight_layout()
+        path = os.path.join(training_args.output_dir, f"confusion_matrix_{split_name}.png")
+        fig.savefig(path, dpi=150)
+        plt.close(fig)
+        print(f"Saved confusion matrix to {path}")
+
+    def _eval_with_per_class(split_name, dataset):
+        """평가 + per-class classification_report + confusion matrix 생성."""
+        agg = trainer.evaluate(dataset, metric_key_prefix=split_name)
+        # per-class 메트릭
+        preds_output = trainer.predict(dataset)
+        preds = np.argmax(preds_output.predictions, axis=-1)
+        labels = preds_output.label_ids
+        target_names = [id2label[i] for i in range(num_labels)]
+        report = classification_report(
+            labels, preds, target_names=target_names, output_dict=True, zero_division=0
+        )
+        agg["per_class"] = {
+            name: {
+                "precision": report[name]["precision"],
+                "recall": report[name]["recall"],
+                "f1": report[name]["f1-score"],
+                "support": report[name]["support"],
+            }
+            for name in target_names
+            if name in report
+        }
+        # confusion matrix 저장
+        _save_confusion_matrix(labels, preds, target_names, split_name)
+        return agg
+
+    if "validation" in datasets:
+        metrics_payload["validation"] = _eval_with_per_class("validation", datasets["validation"])
     if "test" in datasets:
-        results = trainer.evaluate(datasets["test"], metric_key_prefix="test")
+        results = _eval_with_per_class("test", datasets["test"])
         print(f"Test results: {results}")
+        metrics_payload["test"] = results
+
+    metrics_path = os.path.join(training_args.output_dir, "classification_metrics.json")
+    with open(metrics_path, "w", encoding="utf-8") as f:
+        json.dump(metrics_payload, f, ensure_ascii=False, indent=2)
+    print(f"Saved metrics to {metrics_path}")
 
 
 if __name__ == "__main__":
